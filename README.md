@@ -14,8 +14,11 @@ chat.mod - allows talking with the mod chat filter activated
 chat.admin - allows the use of every /chat command
 
 chat.stab - allows the use of /stab
+
 chat.dedge - allows the use of /dedge
+
 chat.tickle - allows the use of /tickle
+
 
 Commands:
 ==============
@@ -28,8 +31,11 @@ Commands:
  - **mod** - Only players with the "chat.mod" permission are allowed to talk
  - **raw** - Sets chat to use Vanilla Terraria's "player: Text" format. This ignores color, prefixes and suffixes
  - **custom** *[prefix]* - Sets everyone's text to be sent with "*prefix*: Text" format
+ 
 /stab *[player]* - Hits *player* for 250 damage and broadcasts "*player* just got stabbed!"
+
 /dedge *[player]* - Hits *player* for 300 damage, *user* takes 200 damage, and broadcasts "*user* hits *player* with a life-risking strike!"
+
 /tickle *[player]* - Freezes *player* for 15 seconds and broadcasts "*player* is under a freezing attack of tickles!"
 
 Changelog:

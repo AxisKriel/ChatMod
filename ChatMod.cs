@@ -16,12 +16,12 @@ namespace ChatMod
         public ChatMod(Main game)
             : base(game)
         {
-            base.Order = int.MaxValue;
+            base.Order = 0;
         }
 
         public override Version Version
         {
-            get { return new Version(1, 2, 6); }
+            get { return new Version(1, 3, 0); }
         }
 
         public override string Name
@@ -40,29 +40,23 @@ namespace ChatMod
         }
         #endregion
 
-        private List<Item> BannedItems { get; set; }
-        private List<ChatPlayer> ChatPlayer = new List<ChatPlayer>();
+        private ChatPlayer[] ChatPlayers = new ChatPlayer[256];
 
         public override void Initialize()
         {
             ServerApi.Hooks.ServerChat.Register(this, OnChat);
             ServerApi.Hooks.NetGreetPlayer.Register(this, OnJoin);
-            //ServerApi.Hooks.ClientChatReceived.Register(this, OnChatReceive);
-            //ServerApi.Hooks.ClientChat.Register(this, OnClientChat);
+            ServerApi.Hooks.NetGetData.Register(this, OnGetData);
+            ServerApi.Hooks.ServerLeave.Register(this, OnLeave);
 
             Commands.ChatCommands.Add(new Command("chat.admin", ChatModding, "chat")
             {
-                HelpText= "default - Removes the chat filter \nmod - Sets the chat filter to Moderated (only Spirit+ can talk) \nraw - Sets the chat filter to Vanilla's chat system \ncustom - Activates anonymity and sets everyone to speak under a custom prefix"
+                HelpText = "Sets chat filters. Type /chat help for more info."
             });
-            //Commands.ChatCommands.Add(new Command("chat.invmod", InvMod, "invmod"));
-
-            //Chat Commands
-            Commands.ChatCommands.Add(new Command("chat.stab", DoStab, "stab") { HelpText = "[ChatMod] Help: /stab <player> - Damages [player] for 250 damage" });
-            Commands.ChatCommands.Add(new Command("chat.dedge", DoEdge, "dedge") { HelpText = "[ChatMod] Help: /dedge <player> - Damages [player] for 300 damage, and the user for 200 damage" });
-            Commands.ChatCommands.Add(new Command("chat.tickle", DoTickle, "tickle") { HelpText = "[ChatMod] Help: /tickle <player> - Freezes [player] for 15 seconds" });
-            //Commands.ChatCommands.Add(new Command("chat.debug", Debug, "debug"));
-            //Commands.ChatCommands.Add(new Command("chat.raptor", Raptor, "raptor") { HelpText = "[ChatMod] Raptor: Functionality for Raptor Clients:" });
-            
+            Commands.ChatCommands.Add(new Command("chat.ignore", DoIgnore, "ignore")
+            {
+                HelpText = "Ignores a player, preventing messages from being received. Usage: /ignore +|-<playername>"
+            });
             
         }
 
@@ -70,8 +64,8 @@ namespace ChatMod
         {
             ServerApi.Hooks.ServerChat.Deregister(this, OnChat);
             ServerApi.Hooks.NetGreetPlayer.Deregister(this, OnJoin);
-            //ServerApi.Hooks.ClientChatReceived.Deregister(this, OnChatReceive);
-            //ServerApi.Hooks.ClientChat.Deregister(this, OnClientChat);
+            ServerApi.Hooks.NetGetData.Deregister(this, OnGetData);
+            ServerApi.Hooks.ServerLeave.Deregister(this, OnLeave);
             base.Dispose(disposing);
         }
 
@@ -81,58 +75,11 @@ namespace ChatMod
         private bool CName = false;
         private string CPrefix = "";
 
-        //private void Debug(CommandArgs args) //Disabled, not ready & includes Raptor test subject
-        //{
-        //    if (args.Parameters.Count < 1)
-        //    {
-        //        args.Player.SendErrorMessage("No type specified!");
-        //        return;
-        //    }
-        //    string type = args.Parameters[0];
-        //    switch (type)
-        //    {
-        //        case "chatplayer":
-        //            {
-        //                string chatplayers = "";
-        //                foreach (ChatPlayer plr in ChatPlayer)
-        //                {
-        //                    chatplayers += "[" + plr.TSPlayer.Name + "]" + ", ";
-        //                }
-        //                args.Player.SendInfoMessage("Current ChatPlayers: " + chatplayers);
-        //                break;
-        //            }
-        //        case "raptor":
-        //            {
-        //                if (args.Player.IsRaptor)
-        //                {
-        //                    args.Player.SendSuccessMessage("[ChatMod] Raptor: Client Check Successful!");
-        //                    break;
-        //                }
-        //                else
-        //                {
-        //                    args.Player.SendErrorMessage("[ChatMod] Raptor: Client Check Failed!");
-        //                    break;
-        //                }
-        //            }
-        //        default:
-        //            {
-        //                args.Player.SendErrorMessage("Invalid Type!");
-        //                break;
-        //            }
-        //    }
-        //    return;
-        //}
-
-        private void OnJoin(GreetPlayerEventArgs args)
+        private void OnJoin(GreetPlayerEventArgs e)
         {
-            if (!TShock.Players[args.Who].IsLoggedIn)
+            if (TShock.Players[e.Who] != null)
             {
-                return;
-            }
-            else
-            {
-                UpdateList(args.Who);
-                return;
+                UpdateList(e.Who);
             }
         }
 
@@ -167,231 +114,28 @@ namespace ChatMod
             }
         }
 
-        private void DoStab(CommandArgs args)
+        private void OnGetData(GetDataEventArgs data)
         {
-            string target = "";
-            if (args.Parameters.Count < 1)
+            foreach (ChatPlayer player in ChatPlayers.Where<ChatPlayer>(ch => ch.IgnoredPlayers.Count > 1))
             {
-                args.Player.SendErrorMessage("Invalid syntax! Proper syntax: /stab <player>");
-                return;
-            }
-
-            if (args.Parameters.Count == 1)
-            {
-                target = args.Parameters[0];
-            }
-            else if (args.Parameters.Count > 1)
-            {
-                for (int i = 0; i < args.Parameters.Count; i++)
+                foreach (ChatPlayer plr in player.IgnoredPlayers)
                 {
-                    target += args.Parameters[i];
-                    if (args.Parameters.Count == i + 1)
+                    if (data.Msg.whoAmI == plr.Index)
                     {
-                        break;
-                    }
-                    else
-                    {
-                        target += " ";
+                        data.Handled = true;
+                        return;
                     }
                 }
             }
-
-            List<TSPlayer> found = TShock.Utils.FindPlayer(target);
-            if (found.Count < 1)
-            {
-                args.Player.SendErrorMessage("[ChatMod] Error: No player matched!");
-                return;
-            }
-            else if (found.Count == 1)
-            {
-                found[0].DamagePlayer(250);
-                Color color = new Color(133, 96, 155);
-                TSPlayer.All.SendMessage(found[0].Name + " just got stabbed!", color);
-                return;
-            }
-            else
-            {
-                args.Player.SendErrorMessage("[ChatMod] Error: More than one player matched!");
-                return;
-            }
-
         }
 
-        private void DoEdge(CommandArgs args)
+        private void OnLeave(LeaveEventArgs e)
         {
-            string target = "";
-            if (args.Parameters.Count < 1)
+            if (TShock.Players[e.Who] != null && ChatPlayers[e.Who] != null)
             {
-                args.Player.SendErrorMessage("Invalid syntax! Proper syntax: /dedge <player>");
-                return;
+                UpdateList(e.Who, false);
             }
-
-            if (args.Parameters.Count == 1)
-            {
-                target = args.Parameters[0];
-            }
-            else if (args.Parameters.Count > 1)
-            {
-                for (int i = 0; i < args.Parameters.Count; i++)
-                {
-                    target += args.Parameters[i];
-                    if (args.Parameters.Count == i + 1)
-                    {
-                        break;
-                    }
-                    else
-                    {
-                        target += " ";
-                    }
-                }
-            }
-
-            List<TSPlayer> found = TShock.Utils.FindPlayer(target);
-            if (found.Count < 1)
-            {
-                args.Player.SendErrorMessage("[ChatMod] Error: No player matched!");
-                return;
-            }
-            else if (found.Count == 1)
-            {
-                found[0].DamagePlayer(300);
-                args.Player.DamagePlayer(200);
-                Color color = new Color(255, 255, 153);
-                TSPlayer.All.SendMessage(string.Format("{0} hits {1} with a life-risking strike!", args.Player.Name, found[0].Name), color);
-                args.Player.SendMessage("You have taken the recoil from the double-edged blade!", color);
-                return;
-            }
-            else
-            {
-                args.Player.SendErrorMessage("[ChatMod] Error: More than one player matched!");
-                return;
-            }
-
         }
-
-        private void DoTickle(CommandArgs args)
-        {
-            string target = "";
-            if (args.Parameters.Count < 1)
-            {
-                args.Player.SendErrorMessage("Invalid syntax! Proper syntax: /tickle <player>");
-                return;
-            }
-
-            if (args.Parameters.Count == 1)
-            {
-                target = args.Parameters[0];
-            }
-            else if (args.Parameters.Count > 1)
-            {
-                for (int i = 0; i < args.Parameters.Count; i++)
-                {
-                    target += args.Parameters[i];
-                    if (args.Parameters.Count == i + 1)
-                    {
-                        break;
-                    }
-                    else
-                    {
-                        target += " ";
-                    }
-                }
-            }
-
-            List<TSPlayer> found = TShock.Utils.FindPlayer(target);
-            if (found.Count < 1)
-            {
-                args.Player.SendErrorMessage("[ChatMod] Error: No player matched!");
-                return;
-            }
-            else if (found.Count == 1)
-            {
-                ChatPlayer chy = ChatPlayer[found[0].Index];
-                found[0].SetBuff(47, 900, false);
-                Color color = new Color(243, 112, 234);
-                TSPlayer.All.SendMessage(found[0].Name + " is under a freezing attack of tickles!", color);
-                chy.Timer.Interval = 15000;
-                chy.Timer.Start();
-                return;
-            }
-            else
-            {
-                args.Player.SendErrorMessage("[ChatMod] Error: More than one player matched!");
-                return;
-            }
-
-        }
-
-        // >> Still to implement this, part of a InvMod to check for banned items <<
-        //private bool AddBannedItem(string item)
-        //{
-        //    List<Item> itm = TShock.Utils.GetItemByIdOrName(item);
-        //    if (itm == null)
-        //    {
-        //        return false;
-        //    }
-        //    if (itm.Count != 1)
-        //    {
-        //        return false;
-        //    }
-        //    else
-        //    {
-        //        BannedItems.Add(itm[0]);
-        //        return true;
-        //    }
-        //}
-
-        //private void InvMod(CommandArgs args)
-        //{
-        //    TSPlayer ply = args.Player;
-        //    if (args.Parameters[0].ToLower() == "add")
-        //    {
-        //        if (args.Parameters.Count != 2)
-        //        {
-        //            ply.SendErrorMessage("Invalid syntax! Proper syntax: /invmod add <itemname/itemid>");
-        //            return;
-        //        }
-        //        if (AddBannedItem(args.Parameters[1]))
-        //        {
-        //            List<Item> result = TShock.Utils.GetItemByIdOrName(args.Parameters[1]);
-        //            ply.SendSuccessMessage(string.Format("[InvMod] Success: Added {0} to the ban list!", result[0]));
-        //            return;
-        //        }
-        //        else
-        //        {
-        //            ply.SendErrorMessage("[InvMod] Error: Could not find the specified item / More than one item matched!");
-        //            return;
-        //        }
-        //    }
-        //    else if (args.Parameters[0].ToLower() == "scan")
-        //    {
-        //        string inflist = "";
-        //        foreach (Item item in ply.TPlayer.inventory)
-        //        {
-        //            foreach (Item listitem in BannedItems)
-        //            {
-        //                if (BannedItems.Contains(args.TPlayer.inventory[item.netID]))
-        //                {
-        //                    inflist += args.TPlayer.inventory[item.netID].name + " ";
-        //                }
-        //            }
-        //        }
-        //        if (inflist == "")
-        //        {
-        //            ply.SendInfoMessage("[InvMod] No banned items were found.");
-        //            return;
-        //        }
-        //        else
-        //        {
-        //            ply.SendErrorMessage(string.Format("You have been disabled for using the following banned item(s): {1}", inflist));
-        //            return;
-        //        }
-        //    }
-        //    else
-        //    {
-        //        ply.SendErrorMessage("Invalid syntax! Proper syntax: /invmod <add/delete/scan/>
-        //    }
-        //}
 
         private void ChatModding(CommandArgs args)
         {
@@ -453,11 +197,78 @@ namespace ChatMod
             }
         }
 
-        #region UTILS
-        private void UpdateList(int id)
+        private void DoIgnore(CommandArgs args)
         {
-            ChatPlayer.Add(new ChatPlayer(id));
-            return;
+            TSPlayer ply = args.Player;
+            if (args.Parameters.Count < 1)
+            {
+                ply.SendErrorMessage("Invalid syntax! Proper syntax: /ignore +|-<playername>");
+            }
+            else
+            {
+                if (args.Parameters[0].ToLower() == "list")
+	            {
+		            ply.SendInfoMessage("[ChatMod] Ignore List: " +
+                        string.Join(", ", ChatPlayers[ply.Index].IgnoredPlayers.Select<ChatPlayer, string>(p => p.TSPlayer.Name)));
+                    return;
+	            }
+                string input = string.Join(" ", args.Parameters);
+                var found = new List<TSPlayer>();
+                string op = "+";
+                if (!args.Parameters[0].StartsWith("+") || !args.Parameters[0].StartsWith("-"))
+                {
+                    found = TShock.Utils.FindPlayer(input);
+                }
+                else
+                {
+                    op = args.Parameters[0].Substring(0, 1);
+                    if (op != "+" || op != "-")
+                    {
+                        ply.SendErrorMessage("[ChatMod] /ignore: Invalid operator! Available operators: +player (add), -player (del)");
+                        return;
+                    }
+                    string subargs = input.Substring(1);
+                    found = TShock.Utils.FindPlayer(subargs);
+                }
+                if (found.Count < 1)
+                {
+                    ply.SendErrorMessage("[ChatMod] /ignore: No players matched!");
+                }
+                else if (found.Count > 1)
+                {
+                    string names = string.Join(", ", found.Select<TSPlayer, string>(p => p.Name));
+                    ply.SendErrorMessage("[ChatMod] /ignore: More than one player matched! Matches: " + names);
+                }
+                else if (found[0] == ply)
+                {
+                    ply.SendErrorMessage("[ChatMod] /ignore: You cannot ignore yourself!");
+                }
+                else if (op == "-")
+                {
+                    if (!ChatPlayers[ply.Index].IgnoredPlayers.Remove(ChatPlayers[found[0].Index]))
+                        ply.SendErrorMessage("[ChatMod] /ignore: Player is not in your ignore list!");
+                    else
+                        ply.SendSuccessMessage("[ChatMod] /ignore: {0} is no longer being ignored!", found[0].Name);
+                }
+                else
+                {
+                    ChatPlayers[ply.Index].IgnoredPlayers.Add(ChatPlayers[found[0].Index]);
+                    ply.SendSuccessMessage("[ChatMod] /ignore: Added {0} to your ignore list!", found[0].Name);
+                }
+            }
+        }
+
+        #region UTILS
+        private void UpdateList(int id, bool add = true)
+        {
+            if (add)
+            {
+                ChatPlayers[id] = new ChatPlayer(id);
+            }
+            else
+            {
+                ChatPlayers[id] = null;
+            }
         }
         #endregion
     }
